@@ -1,3 +1,44 @@
 #include <chrono>
+#include <cassert>
+#include "BlockManager.h"
+#include "InterlockingController.h"
+#include "RailwayGraph.h"
+#include "ReservationManager.h"
+#include "RouteEngine.h"
+#include "Train.h"
 #include "SimulationEngine.h"
-int main() { SimulationEngine engine; engine.run(std::chrono::milliseconds(1), 1); }
+
+int main() {
+	RailwayGraph graph;
+	for (const auto& node : {"A", "B", "C", "D", "E", "F"}) graph.addNode(node);
+	graph.addTrack("A", "B", 10000.0); graph.addTrack("B", "C", 10000.0); graph.addTrack("C", "F", 10000.0);
+	graph.addTrack("A", "D", 15000.0); graph.addTrack("D", "E", 10000.0); graph.addTrack("E", "F", 10000.0);
+	RouteEngine routes(graph);
+	const auto primary = routes.calculate("A", "F");
+	const auto alternate = routes.calculate("A", "F", {}, {"A->B"});
+	assert(primary && alternate);
+
+	BlockManager blocks;
+	for (const auto& [from, to, distance] : {std::tuple{"A", "B", 10000.0}, {"B", "C", 10000.0}, {"C", "F", 10000.0}, {"A", "D", 15000.0}, {"D", "E", 10000.0}, {"E", "F", 10000.0}}) {
+		blocks.addBlock(TrackBlock(std::string(from) + "->" + to, from, to, distance, 30.0));
+	}
+	ReservationManager reservations;
+	InterlockingController interlocking(blocks, reservations);
+	Train train(1, "A", "F", 20.0);
+	train.setRoute(*primary);
+	assert(interlocking.authorize(1, {"A->B", "B->C", "C->F"}));
+	blocks.setBlocked("A->B", true);
+	assert(!train.isNextBlockAvailable(blocks));
+	assert(interlocking.authorizeReplacementRoute(1, *alternate, "A", "F"));
+	interlocking.releaseBlocks(1, {"B->C", "C->F"});
+	train.replaceRemainingRoute(*alternate);
+	assert(train.getCurrentNode() == "A");
+	assert(train.getPositionOnEdge() == 0.0);
+	assert(train.getCurrentBlock() == "A->D");
+	assert(reservations.snapshot().at("A->B") == 1);
+	assert(!reservations.snapshot().contains("B->C"));
+	assert(train.update(1.0, 100000.0).block == "A->D");
+
+	SimulationEngine engine;
+	engine.run();
+}

@@ -54,8 +54,60 @@ int main() {
     assert(moving.position > 0.0);
     assert(moving.block == "A->C");
     assert(moving.state == TrainState::MOVING);
+    assert(train.getCurrentNode() == "A");
+    assert(train.getCurrentBlock() == "A->C");
+    assert(train.getNextBlock() == "C->D");
+    assert(train.getDestination() == "E");
+    assert(train.getRouteIndex() == 0);
+    assert(train.getRemainingRoute() == expectedShortest);
 
-    Train arrivingTrain(8, "A", "E", 20.0);
+    const auto positionBeforeReplacement = train.getPositionOnEdge();
+    train.replaceRemainingRoute(*shortest);
+    assert(train.getPositionOnEdge() == positionBeforeReplacement);
+    assert(train.getCurrentNode() == "A");
+    assert(train.getCurrentBlock() == "A->C");
+    const auto afterReplacement = train.update(0.25, 1000.0);
+    assert(afterReplacement.position > positionBeforeReplacement);
+
+    Train boundaryTrain(8, "A", "F", 20.0);
+    const auto boundaryRoute = graph.shortestPath("A", "E");
+    assert(boundaryRoute);
+    boundaryTrain.setRoute(*boundaryRoute);
+    const auto alternateBoundaryRoute = Route{{"A", "B", "E"}, {2000.0, 2000.0}, 4000.0};
+    boundaryTrain.replaceRemainingRoute(alternateBoundaryRoute);
+    assert(boundaryTrain.getCurrentNode() == "A");
+    assert(boundaryTrain.getCurrentBlock() == "A->B");
+    assert(boundaryTrain.getPositionOnEdge() == 0.0);
+    const auto boundaryMovement = boundaryTrain.update(0.25, 1000.0);
+    assert(boundaryMovement.block == "A->B");
+    assert(boundaryMovement.position > 0.0);
+
+    BlockManager obstructionBlocks;
+    obstructionBlocks.addBlock(TrackBlock("A->B", "A", "B", 10000.0, 30.0));
+    obstructionBlocks.addBlock(TrackBlock("A->D", "A", "D", 15000.0, 30.0));
+    Train obstructionTrain(10, "A", "F", 20.0);
+    const Route preferredRoute{{"A", "B", "C", "F"}, {10000.0, 10000.0, 10000.0}, 30000.0};
+    obstructionTrain.setRoute(preferredRoute);
+    assert(obstructionTrain.getCurrentNode() == "A");
+    assert(obstructionTrain.getCurrentBlock() == "A->B");
+    assert(obstructionTrain.isNextBlockAvailable(obstructionBlocks));
+    assert(obstructionBlocks.reserveBlock("A->B", 10));
+    const auto positionBeforeObstruction = obstructionTrain.getPositionOnEdge();
+    const auto routeBeforeObstruction = obstructionTrain.getRemainingRoute();
+    obstructionBlocks.setBlocked("A->B", true);
+    assert(!obstructionTrain.isNextBlockAvailable(obstructionBlocks));
+    if (obstructionTrain.isNextBlockAvailable(obstructionBlocks)) {
+        obstructionTrain.update(1.0, 100000.0);
+    }
+    assert(obstructionTrain.getPositionOnEdge() == positionBeforeObstruction);
+    assert(obstructionTrain.getRemainingRoute() == routeBeforeObstruction);
+    assert(obstructionBlocks.getReservedTrain("A->B") == 10);
+    assert(obstructionBlocks.isAvailable("A->D"));
+    obstructionBlocks.setBlocked("A->B", false);
+    assert(obstructionTrain.isNextBlockAvailable(obstructionBlocks));
+    assert(obstructionTrain.update(0.25, 100000.0).position > positionBeforeObstruction);
+
+    Train arrivingTrain(9, "A", "E", 20.0);
     arrivingTrain.setRoute(*shortest);
     TrainTelemetry arrival;
     for (int updateCount = 0; updateCount < 200 && !arrival.completed; ++updateCount) {

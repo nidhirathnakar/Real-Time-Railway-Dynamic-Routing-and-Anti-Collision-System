@@ -1,5 +1,7 @@
 #include "Train.h"
 
+#include "BlockManager.h"
+
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -26,6 +28,47 @@ int Train::getId() const {
     return id;
 }
 
+std::string Train::getCurrentNode() const {
+    std::lock_guard lock(stateMutex);
+    if (route.empty()) return start;
+    return route[std::min(routeIndex, route.size() - 1)];
+}
+
+std::string Train::getCurrentBlock() const {
+    std::lock_guard lock(stateMutex);
+    if (route.empty() || routeIndex + 1 >= route.size() || routeIndex >= edgeDistances.size()) return {};
+    return route[routeIndex] + "->" + route[routeIndex + 1];
+}
+
+std::string Train::getNextBlock() const {
+    std::lock_guard lock(stateMutex);
+    const auto nextIndex = routeIndex + 1;
+    if (route.empty() || nextIndex + 1 >= route.size() || nextIndex >= edgeDistances.size()) return {};
+    return route[nextIndex] + "->" + route[nextIndex + 1];
+}
+
+std::string Train::getDestination() const {
+    std::lock_guard lock(stateMutex);
+    return destination;
+}
+
+double Train::getPositionOnEdge() const {
+    std::lock_guard lock(stateMutex);
+    return positionOnEdge;
+}
+
+std::size_t Train::getRouteIndex() const {
+    std::lock_guard lock(stateMutex);
+    return routeIndex;
+}
+
+std::vector<std::string> Train::getRemainingRoute() const {
+    std::lock_guard lock(stateMutex);
+    if (route.empty()) return {};
+    const auto currentIndex = std::min(routeIndex, route.size() - 1);
+    return {route.begin() + static_cast<std::ptrdiff_t>(currentIndex), route.end()};
+}
+
 void Train::setRoute(const Route& selectedRoute) {
     if (selectedRoute.nodes.empty()) {
         throw std::invalid_argument("A train route cannot be empty");
@@ -35,6 +78,36 @@ void Train::setRoute(const Route& selectedRoute) {
     edgeDistances = selectedRoute.edgeDistances;
     routeIndex = 0;
     positionOnEdge = 0.0;
+}
+
+void Train::replaceRemainingRoute(const Route& replacementRoute) {
+    if (replacementRoute.nodes.empty() || replacementRoute.edgeDistances.size() + 1 != replacementRoute.nodes.size()) {
+        throw std::invalid_argument("Replacement route must contain matching nodes and edge distances");
+    }
+
+    std::lock_guard lock(stateMutex);
+    if (state == TrainState::ARRIVED) {
+        throw std::logic_error("An arrived train cannot be rerouted");
+    }
+
+    const auto currentIndex = std::min(routeIndex, route.empty() ? 0U : route.size() - 1);
+    const auto currentNode = route.empty() ? start : route[currentIndex];
+    if (replacementRoute.nodes.front() != currentNode) {
+        throw std::invalid_argument("Replacement route must start at the train's current node");
+    }
+
+    // A branch switch is supported at a node boundary. Mid-edge changes must
+    // retain the current edge, which this graph cannot safely infer otherwise.
+    if (positionOnEdge > 0.0 && !route.empty() && currentIndex + 1 < route.size() &&
+        replacementRoute.nodes.size() < 2 ||
+        positionOnEdge > 0.0 && !route.empty() && currentIndex + 1 < route.size() &&
+        replacementRoute.nodes[1] != route[currentIndex + 1]) {
+        throw std::invalid_argument("Mid-edge branch replacement is not supported");
+    }
+
+    route = replacementRoute.nodes;
+    edgeDistances = replacementRoute.edgeDistances;
+    routeIndex = 0;
 }
 
 double Train::stoppingDistance(double currentVelocity, double reactionTime, double brakingDeceleration) {
@@ -102,4 +175,15 @@ void Train::displayInfo() const {
     std::cout << "\nVelocity       : "
               << velocity
               << " m/s\n";
+}
+
+bool Train::isNextBlockAvailable(const BlockManager& blocks) const {
+    std::string nextBlock;
+    {
+        std::lock_guard lock(stateMutex);
+        if (!route.empty() && routeIndex < edgeDistances.size() && routeIndex + 1 < route.size()) {
+            nextBlock = route[routeIndex] + "->" + route[routeIndex + 1];
+        }
+    }
+    return nextBlock.empty() || blocks.isAvailable(nextBlock, id);
 }

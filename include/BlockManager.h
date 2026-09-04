@@ -16,6 +16,8 @@ public:
     void releaseBlock(const std::string& blockId, int trainId);
     void releaseOccupancy(const std::string& blockId, int trainId);
     bool isAvailable(const std::string& blockId, int trainId = -1) const;
+    void setBlocked(const std::string& blockId, bool blocked);
+    bool isBlocked(const std::string& blockId) const;
     bool isOccupied(const std::string& blockId) const;
     bool isReserved(const std::string& blockId) const;
     int getReservedTrain(const std::string& blockId) const;

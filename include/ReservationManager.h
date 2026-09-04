@@ -9,6 +9,7 @@
 class ReservationManager {
 public:
     bool tryReserve(int trainId, const std::vector<std::string>& blocks);
+    void release(int trainId, const std::vector<std::string>& blocks);
     void release(int trainId);
     std::unordered_map<std::string, int> snapshot() const;
 

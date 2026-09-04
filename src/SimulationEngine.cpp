@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <iomanip>
 #include <iostream>
 #include <thread>
@@ -76,10 +77,6 @@ void SimulationEngine::run(std::chrono::milliseconds step, int ticks) {
     if (preferredSecondRoute && !interlocking.authorize(2, routeBlocks(*preferredSecondRoute))) {
         metrics.recordFailedReservation();
         metrics.recordBlockedRouteAttempt();
-        if (secondRoute) {
-            metrics.recordRouteChange();
-            metrics.recordCollisionPrevented();
-        }
     }
     if (!secondRoute || !interlocking.authorize(2, routeBlocks(*secondRoute))) metrics.recordFailedReservation(); else metrics.recordSuccessfulReservation();
     std::cout << "\n========================================\nROUTE CALCULATION\n========================================\n"
@@ -92,6 +89,9 @@ void SimulationEngine::run(std::chrono::milliseconds step, int ticks) {
 
     TelemetryQueue queue(128);
     std::vector<Telemetry> latest;
+    std::atomic<bool> train2Complete{false};
+    std::mutex rerouteMutex;
+    std::condition_variable rerouteReady;
     std::jthread consumer([&](std::stop_token) {
         std::map<int, Telemetry> current;
         std::map<int, std::string> lastPrintedBlock;
@@ -121,6 +121,12 @@ void SimulationEngine::run(std::chrono::milliseconds step, int ticks) {
                 }
             }
             if (event->brakingStarted) { metrics.recordEmergencyBrake(); logger.safety("Train " + std::to_string(event->id) + " braking"); }
+            if (event->id == train2.getId() && event->completed) {
+                interlocking.releaseBlocks(train2.getId(), routeBlocks(*secondRoute));
+                train2Complete.store(true);
+                rerouteReady.notify_one();
+                logger.info("Train 2 released its completed route");
+            }
             if (lastPrintedBlock[event->id] != event->block || event->brakingStarted || event->completed) {
                 std::cout << "Telemetry train " << event->id << " block=" << (event->block.empty() ? "yard" : event->block)
                           << " position=" << std::fixed << std::setprecision(1) << event->position << " m velocity=" << event->velocity << " m/s\n";
@@ -132,8 +138,51 @@ void SimulationEngine::run(std::chrono::milliseconds step, int ticks) {
     std::vector<std::jthread> workers;
     for (Train* train : {&train1, &train2}) {
         workers.emplace_back([&, train](std::stop_token) {
+            bool runtimeRerouted = false;
+            bool waitedForRuntimeGate = false;
             for (int tick = 0; tick < ticks; ++tick) {
+                if (train == &train1 && !waitedForRuntimeGate) {
+                    std::unique_lock gateLock(rerouteMutex);
+                    rerouteReady.wait(gateLock, [&] { return train2Complete.load(); });
+                    waitedForRuntimeGate = true;
+                }
                 const double obstacleDistance = train == &train1 ? 30.0 : 100.0;
+                if (train == &train1 && !runtimeRerouted) {
+                    blocks.setBlocked("A->B", true);
+                    logger.warning("Runtime obstruction: block A->B is BLOCKED");
+                    if (!train->isNextBlockAvailable(blocks)) {
+                        const auto candidate = routes.calculate(
+                            train->getCurrentNode(), train->getDestination(), {}, {"A->B"}
+                        );
+                        if (candidate && interlocking.authorizeReplacementRoute(
+                                train->getId(), *candidate, train->getCurrentNode(), train->getDestination())) {
+                            std::vector<std::string> obsolete;
+                            const auto oldRoute = train->getRemainingRoute();
+                            const auto candidateBlocks = routeBlocks(*candidate);
+                            const std::unordered_set<std::string> replacementBlocks(
+                                candidateBlocks.begin(), candidateBlocks.end()
+                            );
+                            for (std::size_t index = 1; index < oldRoute.size(); ++index) {
+                                const std::string block = oldRoute[index - 1] + "->" + oldRoute[index];
+                                if (block != train->getCurrentBlock() && !replacementBlocks.contains(block)) {
+                                    obsolete.push_back(block);
+                                }
+                            }
+                            interlocking.releaseBlocks(train->getId(), obsolete);
+                            train->replaceRemainingRoute(*candidate);
+                            runtimeRerouted = true;
+                            metrics.recordRouteChange();
+                            metrics.recordCollisionPrevented();
+                            logger.route("Train 1 runtime route change: " + routeText(*candidate));
+                        }
+                    }
+                }
+                if (train == &train1 && !runtimeRerouted) {
+                    continue;
+                }
+                if (!train->isNextBlockAvailable(blocks)) {
+                    continue;
+                }
                 const auto event = train->update(step.count() / 1000.0, obstacleDistance);
                 queue.push(event);
                 if (event.completed) break;

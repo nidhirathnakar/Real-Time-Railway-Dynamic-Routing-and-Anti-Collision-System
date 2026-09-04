@@ -10,6 +10,8 @@
 #include "RailwayGraph.h"
 #include "BrakingModel.h"
 
+class BlockManager;
+
 enum class TrainState { STOPPED, MOVING, BRAKING, ARRIVED };
 
 struct TrainTelemetry {
@@ -40,6 +42,15 @@ public:
 
     int getId() const;
     void setRoute(const Route& route);
+    void replaceRemainingRoute(const Route& route);
+    std::string getCurrentNode() const;
+    std::string getCurrentBlock() const;
+    std::string getNextBlock() const;
+    std::string getDestination() const;
+    double getPositionOnEdge() const;
+    std::size_t getRouteIndex() const;
+    std::vector<std::string> getRemainingRoute() const;
+    bool isNextBlockAvailable(const BlockManager& blocks) const;
     TrainTelemetry update(double deltaSeconds, double distanceToObstacle);
     static double stoppingDistance(double velocity, double reactionTime, double brakingDeceleration);
     void displayInfo() const;

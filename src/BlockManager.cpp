@@ -66,6 +66,21 @@ bool BlockManager::isAvailable(const std::string& id, int trainId) const {
            (selected.getReservedTrain() == -1 || selected.getReservedTrain() == trainId) &&
            (selected.getOccupyingTrain() == -1 || selected.getOccupyingTrain() == trainId);
 }
+void BlockManager::setBlocked(const std::string& id, bool blocked) {
+    std::unique_lock lock(mutex);
+    auto& selected = block(id);
+    if (blocked) {
+        selected.setState(BlockState::BLOCKED);
+        return;
+    }
+    selected.setState(selected.getOccupyingTrain() != -1 ? BlockState::OCCUPIED
+                    : selected.getReservedTrain() != -1 ? BlockState::RESERVED
+                    : BlockState::FREE);
+}
+bool BlockManager::isBlocked(const std::string& id) const {
+    std::shared_lock lock(mutex);
+    return block(id).getState() == BlockState::BLOCKED;
+}
 bool BlockManager::isOccupied(const std::string& id) const { std::shared_lock lock(mutex); return block(id).getState() == BlockState::OCCUPIED; }
 bool BlockManager::isReserved(const std::string& id) const { std::shared_lock lock(mutex); return block(id).getReservedTrain() != -1; }
 int BlockManager::getReservedTrain(const std::string& id) const { std::shared_lock lock(mutex); return block(id).getReservedTrain(); }

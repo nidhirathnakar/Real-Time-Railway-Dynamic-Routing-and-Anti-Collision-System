@@ -16,6 +16,16 @@ bool ReservationManager::tryReserve(int trainId, const std::vector<std::string>&
     return true;
 }
 
+void ReservationManager::release(int trainId, const std::vector<std::string>& blocks) {
+    std::unique_lock lock(mutex);
+    for (const auto& block : blocks) {
+        const auto owner = owners.find(block);
+        if (owner != owners.end() && owner->second == trainId) {
+            owners.erase(owner);
+        }
+    }
+}
+
 void ReservationManager::release(int trainId) {
     std::unique_lock lock(mutex);
     for (auto iterator = owners.begin(); iterator != owners.end();) {
