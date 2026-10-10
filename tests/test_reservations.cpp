@@ -1,4 +1,7 @@
 #include <cassert>
+#include <atomic>
+#include <thread>
+#include <vector>
 #include "ReservationManager.h"
 
 int main() {
@@ -25,4 +28,23 @@ int main() {
 	assert(!reservations.tryReserve(2, {"B3"}));
 	reservations.release(1);
 	assert(reservations.tryReserve(2, {"B3"}));
+
+		ReservationManager concurrentReservations;
+		constexpr int contenderCount = 2;
+		std::atomic<int> ready{0};
+		std::atomic<bool> go{false};
+		std::atomic<int> successes{0};
+		std::vector<std::thread> contenders;
+		for (int trainId = 1; trainId <= contenderCount; ++trainId) {
+			contenders.emplace_back([&, trainId] {
+				++ready;
+				while (!go.load()) std::this_thread::yield();
+				if (concurrentReservations.tryReserve(trainId, {"shared"})) ++successes;
+			});
+		}
+		while (ready.load() != contenderCount) std::this_thread::yield();
+		go.store(true);
+		for (auto& contender : contenders) contender.join();
+		assert(successes.load() == 1);
+		assert(!concurrentReservations.tryReserve(99, {"shared"}));
 }

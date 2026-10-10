@@ -1,7 +1,7 @@
 #ifndef RESERVATION_MANAGER_H
 #define RESERVATION_MANAGER_H
 
-#include <shared_mutex>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -14,7 +14,7 @@ public:
     std::unordered_map<std::string, int> snapshot() const;
 
 private:
-    mutable std::shared_mutex mutex;
+    mutable std::mutex mutex;
     std::unordered_map<std::string, int> owners;
 };
 

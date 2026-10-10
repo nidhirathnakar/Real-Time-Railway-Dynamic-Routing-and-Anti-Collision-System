@@ -22,6 +22,11 @@ bool Switch::accepts(const std::string& requested) const {
     return position == requested;
 }
 
+std::string Switch::getIncoming() const {
+    std::shared_lock lock(mutex);
+    return incoming;
+}
+
 std::string Switch::getPosition() const {
     std::shared_lock lock(mutex);
     return position;

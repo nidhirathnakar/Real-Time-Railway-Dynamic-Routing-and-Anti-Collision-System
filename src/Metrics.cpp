@@ -15,6 +15,7 @@ void Metrics::print(std::chrono::milliseconds duration) const {
               << "Completed              : " << completed.load() << '\n'
               << "Collisions             : " << collisions.load() << '\n'
               << "Collisions Prevented   : " << collisionsPrevented.load() << '\n'
+              << "Interlocking Conflicts Prevented : " << interlockingConflictsPrevented.load() << '\n'
               << "Near Misses            : " << nearMisses.load() << '\n'
               << "Emergency Brakes       : " << emergencyBrakes.load() << '\n'
               << "Route Changes          : " << routeChanges.load() << '\n'

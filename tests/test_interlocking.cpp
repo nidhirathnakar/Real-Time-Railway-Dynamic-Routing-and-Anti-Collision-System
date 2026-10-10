@@ -1,8 +1,12 @@
 #include <cassert>
+#include <atomic>
+#include <barrier>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "InterlockingController.h"
+#include "Metrics.h"
 
 namespace {
 
@@ -31,7 +35,37 @@ int main() {
 		addScenarioBlocks(blocks);
 		ReservationManager reservations;
 		InterlockingController controller(blocks, reservations);
-		assert(controller.authorize(1, {"A->B", "B->C", "C->F"}));
+		Switch junction("A-switch", "A", {"B", "D"});
+		assert(junction.setPosition("B", false));
+		controller.registerSwitch(junction);
+		assert(controller.authorizeRoute(1, primaryRoute()));
+		assert(reservations.snapshot().at("A->B") == 1);
+	}
+
+	{
+		BlockManager blocks;
+		addScenarioBlocks(blocks);
+		ReservationManager reservations;
+		InterlockingController controller(blocks, reservations);
+		Switch junction("A-switch", "A", {"B", "D"});
+		assert(junction.setPosition("D", false));
+		controller.registerSwitch(junction);
+		assert(!controller.authorizeRoute(1, primaryRoute()));
+		assert(reservations.snapshot().empty());
+		assert(!junction.setPosition("B", true));
+		assert(junction.getPosition() == "D");
+	}
+
+	{
+		BlockManager blocks;
+		addScenarioBlocks(blocks);
+		ReservationManager reservations;
+		InterlockingController controller(blocks, reservations);
+		Switch junction("A-switch", "A", {"B", "D"});
+		assert(junction.setPosition("B", false));
+		controller.registerSwitch(junction);
+		assert(controller.authorizeRoute(1, primaryRoute()));
+		assert(junction.setPosition("D", false));
 		assert(controller.authorizeReplacementRoute(1, alternateRoute(), "A", "F"));
 		const auto state = reservations.snapshot();
 		assert(state.size() == 6 && state.at("A->B") == 1 && state.at("A->D") == 1);
@@ -92,5 +126,30 @@ int main() {
 		blocks.addBlock(TrackBlock("B3", "A", "B", 10000.0, 30.0));
 		assert(controller.authorize(1, {"B3"}));
 		assert(!controller.authorize(2, {"B3"}));
+	}
+
+	{
+		BlockManager blocks;
+		addScenarioBlocks(blocks);
+		ReservationManager reservations;
+		InterlockingController controller(blocks, reservations);
+		assert(controller.authorize(1, {"A->B", "B->C", "C->F"}));
+		constexpr int contenderCount = 6;
+		std::barrier start(contenderCount);
+		std::atomic<int> successes{0};
+		std::vector<std::jthread> contenders;
+		for (int trainId = 2; trainId < contenderCount + 2; ++trainId) {
+			contenders.emplace_back([&, trainId](std::stop_token) {
+				start.arrive_and_wait();
+				if (controller.authorizeReplacementRoute(trainId, alternateRoute(), "A", "F")) ++successes;
+			});
+		}
+		for (auto& contender : contenders) contender.join();
+		assert(successes.load() == 1);
+		assert(reservations.snapshot().size() == 6);
+		Metrics metrics;
+		metrics.recordInterlockingConflictPrevented();
+		assert(metrics.interlockingConflictPreventedCount() == 1);
+		assert(metrics.collisionPreventedCount() == 0);
 	}
 }

@@ -24,6 +24,7 @@ set(RAILWAY_SOURCES
     src/SimulationEngine.cpp
     src/ReservationManager.cpp
     src/Train.cpp
+    src/Scenario.cpp
 )
 
 add_executable(railway_simulator src/main.cpp ${RAILWAY_SOURCES})

@@ -54,6 +54,10 @@ int main() {
     assert(moving.position > 0.0);
     assert(moving.block == "A->C");
     assert(moving.state == TrainState::MOVING);
+    assert(moving.movementAuthority.state == AuthorityState::GRANTED);
+    assert(moving.movementAuthority.authorizedDistance == 1000.0);
+    assert(moving.movementAuthority.maxPermittedDistance > 0.0);
+    assert(moving.movementAuthority.brakingMargin > 0.0);
     assert(train.getCurrentNode() == "A");
     assert(train.getCurrentBlock() == "A->C");
     assert(train.getNextBlock() == "C->D");
@@ -69,12 +73,20 @@ int main() {
     const auto afterReplacement = train.update(0.25, 1000.0);
     assert(afterReplacement.position > positionBeforeReplacement);
 
+    const auto limited = train.update(0.1, 1.0);
+    assert(limited.movementAuthority.state == AuthorityState::LIMITED);
+    assert(limited.movementAuthority.maxPermittedDistance == 0.0);
+    assert(limited.movementAuthority.brakingMargin < 0.0);
+    train.invalidateMovementAuthority("A->C");
+    assert(train.getMovementAuthority().state == AuthorityState::BLOCKED);
+
     Train boundaryTrain(8, "A", "F", 20.0);
     const auto boundaryRoute = graph.shortestPath("A", "E");
     assert(boundaryRoute);
     boundaryTrain.setRoute(*boundaryRoute);
     const auto alternateBoundaryRoute = Route{{"A", "B", "E"}, {2000.0, 2000.0}, 4000.0};
     boundaryTrain.replaceRemainingRoute(alternateBoundaryRoute);
+    assert(boundaryTrain.getMovementAuthority().state == AuthorityState::INVALID);
     assert(boundaryTrain.getCurrentNode() == "A");
     assert(boundaryTrain.getCurrentBlock() == "A->B");
     assert(boundaryTrain.getPositionOnEdge() == 0.0);

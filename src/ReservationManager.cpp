@@ -38,6 +38,6 @@ void ReservationManager::release(int trainId) {
 }
 
 std::unordered_map<std::string, int> ReservationManager::snapshot() const {
-    std::shared_lock lock(mutex);
+    std::lock_guard lock(mutex);
     return owners;
 }

@@ -13,6 +13,17 @@
 class BlockManager;
 
 enum class TrainState { STOPPED, MOVING, BRAKING, ARRIVED };
+enum class AuthorityState { INVALID, GRANTED, LIMITED, BLOCKED };
+
+struct MovementAuthority {
+    std::vector<std::string> authorizedBlocks;
+    double authorizedDistance{};
+    double maxPermittedDistance{};
+    int trainAhead{-1};
+    std::string blockingObject;
+    double brakingMargin{};
+    AuthorityState state{AuthorityState::INVALID};
+};
 
 struct TrainTelemetry {
     int id{};
@@ -25,7 +36,7 @@ struct TrainTelemetry {
     bool brakingStarted{};
     bool completed{};
     TrainState state{TrainState::STOPPED};
-    double movementAuthority{};
+    MovementAuthority movementAuthority;
     std::chrono::steady_clock::time_point timestamp;
 };
 
@@ -51,6 +62,8 @@ public:
     std::size_t getRouteIndex() const;
     std::vector<std::string> getRemainingRoute() const;
     bool isNextBlockAvailable(const BlockManager& blocks) const;
+    MovementAuthority getMovementAuthority() const;
+    void invalidateMovementAuthority(const std::string& blockingObject);
     TrainTelemetry update(double deltaSeconds, double distanceToObstacle);
     static double stoppingDistance(double velocity, double reactionTime, double brakingDeceleration);
     void displayInfo() const;
@@ -68,6 +81,7 @@ private:
     std::size_t routeIndex{};
     double positionOnEdge{};
     TrainState state{TrainState::STOPPED};
+    MovementAuthority movementAuthority;
     BrakingModel brakingModel;
 };
 
